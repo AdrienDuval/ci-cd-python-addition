@@ -1,8 +1,67 @@
-name: Remote SSH Command
+name: CI/CD
+
 on: [push]
+
+env:
+  IMAGE: ghcr.io/adrienduval/ci-cd-python-addition
+
 jobs:
-  Remote-SSH-Command:
-    name: Construire le projet
+  # ---------------------------------------------------------------
+  # 1. CI : verifier que le code est correct
+  # ---------------------------------------------------------------
+  test:
+    name: Lancer les tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Lancer les tests unitaires
+        run: python -m unittest discover -v
+
+  # ---------------------------------------------------------------
+  # 2. Build : emballer le code dans une image Docker
+  #    needs: test -> ne demarre que si les tests sont verts
+  # ---------------------------------------------------------------
+  build-image:
+    name: Construire et publier l'image
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Se connecter au registry ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construire et pousser l'image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+
+  # ---------------------------------------------------------------
+  # 3. CD : deployer sur le serveur distant
+  #    needs: build-image -> uniquement si l'image a ete publiee
+  # ---------------------------------------------------------------
+  deploy:
+    name: Déployer sur le serveur
+    needs: build-image
     runs-on: ubuntu-latest
     steps:
       - name: Récupérer le code
